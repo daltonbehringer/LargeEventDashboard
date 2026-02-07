@@ -24,6 +24,7 @@ test_radar/
 # Keep directory structure
 !data/cache/.gitkeep
 !data/grib/.gitkeep
+!data/mrms/.gitkeep
 !data/radar/.gitkeep
 !data/satellite/.gitkeep
 
@@ -40,3 +41,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+FRONTEND_INTEGRATION.md
+FRONTEND_UPDATE.md
+SYSTEM_STATUS.md

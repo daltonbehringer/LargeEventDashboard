@@ -68,6 +68,17 @@ class WeatherDashboard {
     document.getElementById('radar-play').addEventListener('click', () => {
       this.toggleRadarAnimation();
     });
+
+    // Radar tab switching (NEXRAD / MRMS)
+    document.querySelectorAll('#radar-tabs .tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#radar-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.radar-tab-content').forEach(t => t.classList.remove('active'));
+        document.getElementById(tab === 'mrms' ? 'mrms-tab' : 'nexrad-tab').classList.add('active');
+      });
+    });
   }
 
   async loadAllData() {
@@ -76,7 +87,8 @@ class WeatherDashboard {
       this.loadHourlyForecast(),
       this.loadWeatherAlerts(),
       this.loadRadar(),
-      this.loadSatellite()
+      this.loadSatellite(),
+      this.loadMRMS()
     ]);
     
     this.updateLastUpdateTime();
@@ -287,8 +299,9 @@ class WeatherDashboard {
       const timestamp = document.getElementById('satellite-timestamp');
       
       // Use our locally cached satellite image with cache busting
-      if (data.url) {
-        img.src = data.url + '?t=' + Date.now();
+      const satUrl = data.imageUrl || data.url;
+      if (satUrl) {
+        img.src = satUrl + '?t=' + Date.now();
         img.onload = () => {
           img.classList.add('loaded');
           img.previousElementSibling.style.display = 'none';
@@ -313,6 +326,42 @@ class WeatherDashboard {
     }
   }
 
+  async loadMRMS() {
+    try {
+      const response = await fetch('/api/mrms/latest');
+      const data = await response.json();
+
+      if (data.error) {
+        console.error('MRMS error:', data.error);
+        return;
+      }
+
+      const img = document.getElementById('mrms-image');
+      const timestamp = document.getElementById('mrms-timestamp');
+
+      if (data.url || data.imageUrl) {
+        const imageUrl = data.imageUrl || data.url;
+        img.src = imageUrl + '?t=' + Date.now();
+        img.onload = () => {
+          img.classList.add('loaded');
+          const loader = img.previousElementSibling;
+          if (loader) loader.style.display = 'none';
+        };
+
+        if (data.timestamp) {
+          const mrmsTime = new Date(data.timestamp);
+          timestamp.textContent = mrmsTime.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          }) + ' UTC';
+        }
+      }
+    } catch (error) {
+      console.error('Error loading MRMS:', error);
+    }
+  }
+
   toggleRadarAnimation() {
     // Future implementation: cycle through radar loop images
     console.log('Radar animation toggle');
@@ -329,9 +378,10 @@ class WeatherDashboard {
       this.loadAllData();
     }, 5 * 60 * 1000);
     
-    // Refresh radar more frequently
+    // Refresh radar more frequently (every 2 min)
     setInterval(() => {
       this.loadRadar();
+      this.loadMRMS();
     }, 2 * 60 * 1000);
     
     // Refresh satellite

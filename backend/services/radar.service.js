@@ -244,26 +244,18 @@ class RadarService {
       const filename = baseFilename + ext;
       const filepath = path.join(RADAR_CACHE_PATH, filename);
       
-      try {
-        const data = await fs.readFile(filepath);
+      if (await fs.access(filepath).then(() => true).catch(() => false)) {
+        const stats = await fs.stat(filepath);
         
-        // Determine content type
-        let contentType = 'application/octet-stream';
-        if (ext === '.png') contentType = 'image/png';
-        else if (ext === '.gif') contentType = 'image/gif';
-        else if (ext === '.json') contentType = 'application/json';
-        else if (ext === '.grib2.gz') contentType = 'application/gzip';
-        
+        // Return file path instead of data
         return {
           timestamp,
-          data: ext === '.json' ? JSON.parse(data.toString()) : data.toString('base64'),
-          contentType,
+          localPath: filepath,
+          filename,
+          url: `/api/radar/image/${encodeURIComponent(timestamp)}`,
           format: ext.replace('.', ''),
-          size: data.length
+          size: stats.size
         };
-      } catch (error) {
-        // Try next extension
-        continue;
       }
     }
     
