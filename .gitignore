@@ -1,6 +1,14 @@
 # Dependencies
 node_modules/
 
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
 # Environment variables
 .env
 
@@ -9,6 +17,9 @@ data/cache/*
 data/grib/*
 data/radar/*
 data/satellite/*
+
+# Test data
+test_radar/
 
 # Keep directory structure
 !data/cache/.gitkeep

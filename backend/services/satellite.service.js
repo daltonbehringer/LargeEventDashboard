@@ -22,9 +22,9 @@ class SatelliteService {
     if (!this.config) await this.loadConfig();
     
     try {
-      // GOES-East (GOES-16) example - visible imagery
+      // GOES-East (GOES-18) example - visible imagery
       // These URLs are placeholders - actual NOAA GOES imagery requires more complex processing
-      const satelliteUrl = 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/GEOCOLOR/latest.jpg';
+      const satelliteUrl = 'https://cdn.star.nesdis.noaa.gov/GOES18/ABI/MESO/M1/GEOCOLOR/latest.jpg';
       
       const response = await axios.get(satelliteUrl, {
         responseType: 'arraybuffer'
@@ -39,7 +39,7 @@ class SatelliteService {
       return {
         timestamp,
         product: 'GEOCOLOR',
-        satellite: 'GOES-16',
+        satellite: 'GOES-18',
         imageUrl: `/api/satellite/image/${timestamp}`,
         localPath: filepath
       };
@@ -71,10 +71,10 @@ class SatelliteService {
   async getSatelliteProduct(type) {
     // Different satellite products: visible, infrared, water vapor, etc.
     const productUrls = {
-      geocolor: 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/GEOCOLOR/latest.jpg',
-      visible: 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/02/latest.jpg',
-      infrared: 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/latest.jpg',
-      watervapor: 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/09/latest.jpg'
+      geocolor: 'https://cdn.star.nesdis.noaa.gov/GOES18/ABI/MESO/M1/GEOCOLOR/latest.jpg',
+      visible: 'https://cdn.star.nesdis.noaa.gov/GOES18/ABI/MESO/M1/02/latest.jpg',
+      infrared: 'https://cdn.star.nesdis.noaa.gov/GOES18/ABI/MESO/M1/13/latest.jpg',
+      watervapor: 'https://cdn.star.nesdis.noaa.gov/GOES18/ABI/MESO/M1/09/latest.jpg'
     };
     
     const url = productUrls[type.toLowerCase()] || productUrls.geocolor;

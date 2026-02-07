@@ -92,45 +92,58 @@ class WeatherDashboard {
         return;
       }
 
-      const obs = data.observation;
+      // Data is now from Synoptic API with US units already converted
+      const obs = data.observations;
       
-      // Temperature
-      const tempC = obs.temperature?.value;
-      const tempF = tempC ? (tempC * 9/5 + 32).toFixed(1) : '--';
-      document.getElementById('current-temp').textContent = tempF;
+      // Temperature (already in °F)
+      const temp = obs.temperature?.value;
+      document.getElementById('current-temp').textContent = temp !== null ? temp.toFixed(0) : '--';
       
-      // Feels like
-      const heatIndexC = obs.heatIndex?.value;
-      const windChillC = obs.windChill?.value;
-      const feelsLikeC = heatIndexC || windChillC || tempC;
-      const feelsLikeF = feelsLikeC ? (feelsLikeC * 9/5 + 32).toFixed(1) + '°F' : '--';
-      document.getElementById('feels-like').textContent = feelsLikeF;
+      // Feels like (calculate from temp and wind for now)
+      const windSpeed = obs.wind?.speed?.value || 0;
+      let feelsLike = temp;
+      if (temp !== null && windSpeed > 3) {
+        // Simple wind chill approximation for temps below 50°F
+        if (temp < 50) {
+          feelsLike = 35.74 + (0.6215 * temp) - (35.75 * Math.pow(windSpeed, 0.16)) + (0.4275 * temp * Math.pow(windSpeed, 0.16));
+        }
+      }
+      document.getElementById('feels-like').textContent = feelsLike !== null ? feelsLike.toFixed(0) + '°F' : '--';
       
-      // Humidity
+      // Humidity (already in %)
       const humidity = obs.relativeHumidity?.value;
-      document.getElementById('humidity').textContent = humidity ? humidity.toFixed(0) + '%' : '--';
+      document.getElementById('humidity').textContent = humidity !== null ? humidity.toFixed(0) + '%' : '--';
       
-      // Wind
-      const windSpeed = obs.windSpeed?.value;
-      const windDir = obs.windDirection?.value;
-      const windSpeedMph = windSpeed ? (windSpeed * 2.237).toFixed(1) : '--';
-      const windText = windSpeed ? `${this.degToCompass(windDir)} ${windSpeedMph} mph` : '--';
+      // Wind (already in mph with cardinal direction)
+      const windCardinal = obs.wind?.cardinal || '';
+      const windSpeedDisplay = obs.wind?.speed?.value;
+      const windGust = obs.wind?.gust?.value;
+      let windText = '--';
+      if (windSpeedDisplay !== null) {
+        windText = `${windCardinal} ${windSpeedDisplay.toFixed(0)} mph`;
+        if (windGust !== null && windGust > windSpeedDisplay) {
+          windText += ` (gusts ${windGust.toFixed(0)})`;
+        }
+      }
       document.getElementById('wind').textContent = windText;
       
-      // Pressure
-      const pressure = obs.barometricPressure?.value;
-      const pressureInHg = pressure ? (pressure / 3386.39).toFixed(2) + ' inHg' : '--';
-      document.getElementById('pressure').textContent = pressureInHg;
+      // Pressure (already in inHg)
+      const pressure = obs.pressure?.altimeter?.value;
+      document.getElementById('pressure').textContent = pressure !== null ? pressure.toFixed(2) + ' inHg' : '--';
       
-      // Visibility
+      // Visibility (already in miles)
       const visibility = obs.visibility?.value;
-      const visibilityMiles = visibility ? (visibility / 1609.34).toFixed(1) + ' mi' : '--';
-      document.getElementById('visibility').textContent = visibilityMiles;
+      document.getElementById('visibility').textContent = visibility !== null ? visibility.toFixed(1) + ' mi' : '--';
       
-      // Dewpoint
-      const dewpointC = obs.dewpoint?.value;
-      const dewpointF = dewpointC ? (dewpointC * 9/5 + 32).toFixed(1) + '°F' : '--';
-      document.getElementById('dewpoint').textContent = dewpointF;
+      // Dewpoint (already in °F)
+      const dewpoint = obs.dewpoint?.value;
+      document.getElementById('dewpoint').textContent = dewpoint !== null ? dewpoint.toFixed(0) + '°F' : '--';
+      
+      // Update data source footer
+      if (data.source && data.station) {
+        document.querySelector('.data-sources').textContent = 
+          `Data: ${data.source} (Station ${data.station.id}: ${data.station.name})`;
+      }
       
     } catch (error) {
       console.error('Error loading current weather:', error);
@@ -233,16 +246,26 @@ class WeatherDashboard {
       const img = document.getElementById('radar-image');
       const timestamp = document.getElementById('radar-timestamp');
       
-      // For now, use NOAA radar composite
-      // In production, use the locally cached radar image
-      img.src = 'https://radar.weather.gov/ridge/standard/CONUS_loop.gif';
-      img.onload = () => {
-        img.classList.add('loaded');
-        img.previousElementSibling.style.display = 'none';
-      };
-      
-      if (data.timestamp) {
-        timestamp.textContent = new Date(data.timestamp).toLocaleTimeString();
+      // Use our locally processed radar image with cache busting
+      if (data.url) {
+        img.src = data.url + '?t=' + Date.now();
+        img.onload = () => {
+          img.classList.add('loaded');
+          img.previousElementSibling.style.display = 'none';
+        };
+        
+        if (data.timestamp) {
+          const radarTime = new Date(data.timestamp);
+          timestamp.textContent = radarTime.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          });
+        }
+        
+        if (data.station) {
+          timestamp.textContent += ` (${data.station})`;
+        }
       }
       
     } catch (error) {
@@ -252,7 +275,7 @@ class WeatherDashboard {
 
   async loadSatellite(product = 'geocolor') {
     try {
-      const response = await fetch(`/api/satellite/product/${product}`);
+      const response = await fetch(`/api/satellite/latest?product=${product}`);
       const data = await response.json();
       
       if (data.error) {
@@ -263,21 +286,27 @@ class WeatherDashboard {
       const img = document.getElementById('satellite-image');
       const timestamp = document.getElementById('satellite-timestamp');
       
-      // Use NOAA GOES imagery
-      const productUrls = {
-        geocolor: 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/GEOCOLOR/latest.jpg',
-        visible: 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/02/latest.jpg',
-        infrared: 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/latest.jpg',
-        watervapor: 'https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/09/latest.jpg'
-      };
-      
-      img.src = productUrls[product] + '?t=' + Date.now();
-      img.onload = () => {
-        img.classList.add('loaded');
-        img.previousElementSibling.style.display = 'none';
-      };
-      
-      timestamp.textContent = new Date().toLocaleTimeString();
+      // Use our locally cached satellite image with cache busting
+      if (data.url) {
+        img.src = data.url + '?t=' + Date.now();
+        img.onload = () => {
+          img.classList.add('loaded');
+          img.previousElementSibling.style.display = 'none';
+        };
+        
+        if (data.timestamp) {
+          const satTime = new Date(data.timestamp);
+          timestamp.textContent = satTime.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          });
+        }
+        
+        if (data.product) {
+          timestamp.textContent += ` (${data.product})`;
+        }
+      }
       
     } catch (error) {
       console.error('Error loading satellite:', error);

@@ -1,0 +1,15 @@
+# Python dependencies for radar data processing
+# Core scientific libraries
+numpy>=1.24.0
+matplotlib>=3.7.0
+
+# Image processing
+Pillow>=10.0.0
+
+# HTTP requests
+requests>=2.31.0
+
+# GRIB2 file processing (optional - for future MRMS support)
+xarray>=2023.0.0
+cfgrib>=0.9.10
+eccodes>=1.6.0

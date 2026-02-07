@@ -25,6 +25,14 @@ function msToMph(ms) {
 }
 
 /**
+ * Convert millimeters to inches
+ */
+function mmToInches(mm) {
+  if (mm === null || mm === undefined) return null;
+  return mm / 25.4;
+}
+
+/**
  * Convert pascals to inches of mercury
  */
 function pascalsToInHg(pascals) {
@@ -78,6 +86,7 @@ module.exports = {
   celsiusToFahrenheit,
   metersToMiles,
   msToMph,
+  mmToInches,
   pascalsToInHg,
   degToCompass,
   formatTimestamp,

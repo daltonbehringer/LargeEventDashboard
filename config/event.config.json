@@ -2,16 +2,23 @@
   "event": {
     "name": "Super Bowl LX",
     "location": "Levi's Stadium",
-    "latitude": 37.403,
-    "longitude": -121.970,
+    "latitude": 37.403147,
+    "longitude": -121.969814,
     "timezone": "America/Los_Angeles",
     "startDate": "2026-06-15T09:00:00",
     "endDate": "2026-06-15T22:00:00"
   },
+  "api": {
+    "synoptic": {
+      "key": "e0fb17ad65504848934b1f1ece0c78f8",
+      "enabled": true
+    }
+  },
   "dashboard": {
     "refreshInterval": 300000,
     "radarRefreshInterval": 120000,
-    "satelliteRefreshInterval": 300000
+    "satelliteRefreshInterval": 300000,
+    "weatherRefreshInterval": 300000
   },
   "alerts": {
     "enabled": true,
