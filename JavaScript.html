@@ -757,10 +757,10 @@ class WeatherDashboard {
   startAutoRefresh() {
     var self = this;
 
-    // Full page refresh every 1 hour (more reliable than setInterval for long-running dashboards)
+    // Full page refresh every 30 minutes (more reliable than setInterval for long-running dashboards)
     setTimeout(function() {
       window.location.reload();
-    }, 60 * 60 * 1000);
+    }, 30 * 60 * 1000);
 
     // Radar WMS times every 2 min
     setInterval(function() {
