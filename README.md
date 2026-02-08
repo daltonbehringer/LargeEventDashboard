@@ -1,6 +1,6 @@
 # 🏈 Super Bowl LX — Large Event Weather Dashboard
 
-Real-time weather dashboard for **Super Bowl LX** at **Levi's Stadium** (Santa Clara, CA), deployed as a Google Apps Script web app.
+Real-time weather dashboard for **Super Bowl LX** at **Levi's Stadium** (Santa Clara, CA), deployed as a Google Apps Script web app with interactive Leaflet radar map.
 
 ## Dashboard Features
 
@@ -8,34 +8,61 @@ Real-time weather dashboard for **Super Bowl LX** at **Levi's Stadium** (Santa C
 |-------|--------|---------|
 | **Current Conditions** | Synoptic API → NWS fallback | 5 min |
 | **Weather Alerts** | NWS Alerts API | 1 min |
-| **Radar (KMUX)** | NOAA RIDGE pre-rendered imagery | 2 min |
-| **Satellite (GOES-18)** | NOAA CDN (GeoColor, Visible, IR, WV) | 5 min |
+| **Radar (MRMS)** | NCEP WMS — Leaflet map with time-dimension loop | 2 min |
+| **Satellite (GOES-18)** | Iowa State Mesonet WMS — Leaflet map with VIS/WV/IR channels | 5 min |
 | **Hourly Forecast** | NWS Hourly Forecast API | 15 min |
 | **Forecast Summary** | NWS Detailed Forecast | 15 min |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│  Google Apps Script Web App                  │
-│                                              │
-│  Code.gs          ─ Server-side functions    │
-│  Index.html       ─ Dashboard HTML shell     │
-│  Stylesheet.html  ─ CSS (dark theme)         │
-│  JavaScript.html  ─ Client-side JS           │
-│  appsscript.json  ─ Manifest                 │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│  Google Apps Script Web App                       │
+│                                                   │
+│  Code.gs          ─ Server-side functions         │
+│  Index.html       ─ Dashboard HTML + Leaflet CDN  │
+│  Stylesheet.html  ─ CSS (dark theme)              │
+│  JavaScript.html  ─ Client JS, LoopPlayer,        │
+│                     Leaflet WMS radar + satellite  │
+│  appsscript.json  ─ Manifest                      │
+└──────────────────────────────────────────────────┘
          │                        │
          ▼                        ▼
   UrlFetchApp.fetch()     google.script.run
-         │                   (client→server RPC)
-         ▼
-  ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐
-  │ Synoptic API │  │ NWS API      │  │ NOAA CDN/RIDGE  │
-  │ (weather)    │  │ (forecast,   │  │ (radar,         │
-  │              │  │  alerts)     │  │  satellite)     │
-  └─────────────┘  └──────────────┘  └─────────────────┘
+  (server→external)       (client→server RPC)
+         │
+         ▼                              ▲ (WMS tiles direct from browser)
+  ┌─────────────┐  ┌──────────┐  ┌─────────────────────────┐
+  │ Synoptic API │  │ NWS API  │  │ NCEP GeoServer (WMS)    │
+  │ (weather)    │  │(forecast,│  │ conus_bref_qcd layer    │
+  │              │  │ alerts)  │  │ + Iowa State Mesonet    │
+  │              │  │          │  │ GOES-West WMS (satellite) │
+  └─────────────┘  └──────────┘  └─────────────────────────┘
 ```
+
+### Radar Architecture
+
+The radar panel uses a **Leaflet.js** interactive map with **WMS time-dimension looping**:
+
+1. `Code.gs` → `getRadarTimes()` fetches the NCEP WMS `GetCapabilities` XML and parses the `<Dimension name="time">` element to extract available ISO 8601 timestamps
+2. `JavaScript.html` receives the timestamp array and feeds the last 10 to the `LoopPlayer`
+3. Each frame is a `L.tileLayer.wms()` pointed at `conus_bref_qcd` with a `time=` parameter — tiles are fetched directly by the browser from NCEP GeoServer (no CORS issues, no proxy needed)
+4. Dark basemap (CartoDB Dark Matter), venue marker with pulse animation, 10 NM range ring
+5. Play/pause, step forward/back, scrubber bar, frame counter
+
+### Satellite Architecture
+
+The satellite panel uses the same **Leaflet WMS** pattern as radar, powered by the **Iowa State Mesonet GOES-West WMS**:
+
+1. `Code.gs` → `getSatelliteTimes(channel)` fetches the Iowa State WMS `GetCapabilities` XML and parses the `<Extent name="time">` element for the requested GOES-18 channel
+2. Supports ISO 8601 time intervals (`start/end/PT10M`) and comma-separated time lists
+3. Three channel options switchable via VIS/WV/IR buttons:
+   - `conus_ch02` — Visible (0.64µm) — best for daytime cloud features
+   - `conus_ch09` — Water Vapor (6.9µm) — shows mid-level moisture, works day/night
+   - `conus_ch13` — Clean IR (10.3µm) — cloud-top temps, works day/night
+4. Each frame is a `L.tileLayer.wms()` with `time=` parameter, tiles loaded directly from Iowa State (no proxy)
+5. Dark basemap with labels overlay on top of satellite imagery, 50 NM range ring
+6. Same loop player controls as radar (play/pause, scrubber, frame counter)
 
 ## Deployment
 
@@ -102,6 +129,7 @@ All configuration is in `Code.gs` constants:
 | `SYNOPTIC_API_KEY` | `e0fb17ad...` | Synoptic Data API token |
 | `NEAREST_STATION` | `462PG` | Milpitas IDSM weather station |
 | `RADAR_STATION` | `KMUX` | Bay Area NEXRAD site |
+| `RADAR_WMS_URL` | `https://opengeo.ncep.noaa.gov/...` | NCEP WMS endpoint for MRMS reflectivity |
 
 ### Moving API Key to PropertiesService (Recommended for Production)
 
@@ -117,18 +145,24 @@ var SYNOPTIC_API_KEY = PropertiesService.getScriptProperties().getProperty('SYNO
 
 - **Current Weather**: [Synoptic Data API](https://synopticdata.com/) (station 462PG, Milpitas IDSM, ~3.1 km from venue)
 - **Forecast & Alerts**: [NOAA National Weather Service API](https://api.weather.gov/)
-- **Radar**: [NOAA RIDGE](https://radar.weather.gov/) (KMUX — Mt. Umunhum, Bay Area)
-- **Satellite**: [GOES-18 ABI](https://cdn.star.nesdis.noaa.gov/) (Pacific Southwest sector)
+- **Radar**: [NCEP GeoServer WMS](https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows) — MRMS quality-controlled base reflectivity, 1 km resolution, ~2 min updates, rendered on a Leaflet map via `L.tileLayer.wms()` with time-dimension looping
+- **Satellite**: [Iowa State Mesonet GOES-West WMS](https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_west.cgi) — GOES-18 ABI channels (Visible ch02, Water Vapor ch09, Clean IR ch13), rendered on Leaflet map with time-dimension looping
+
+## Client-Side Libraries
+
+| Library | Version | CDN | Purpose |
+|---------|---------|-----|---------|
+| **Leaflet.js** | 1.9.4 | unpkg | Interactive radar + satellite maps with WMS tile layers |
 
 ## File Structure
 
 ```
 LargeEventDashboard/
 ├── appsscript.json      # GAS manifest (timezone, runtime, webapp config)
-├── Code.gs              # Server-side: API calls, caching, unit conversion
-├── Index.html           # Dashboard HTML template
-├── Stylesheet.html      # CSS (dark theme, 4×3 grid layout)
-├── JavaScript.html      # Client-side JS (google.script.run RPC)
+├── Code.gs              # Server-side: API calls, WMS time parsing, caching
+├── Index.html           # Dashboard HTML template + Leaflet CDN
+├── Stylesheet.html      # CSS (dark theme, 4×3 grid, Leaflet overrides)
+├── JavaScript.html      # Client JS: LoopPlayer, Leaflet WMS radar, satellite
 ├── .clasp.json          # clasp CLI config (script ID)
 ├── .gitignore           # Git ignore rules
 ├── .env.example         # Reference env vars
@@ -143,8 +177,8 @@ LargeEventDashboard/
 | Client↔Server | `fetch('/api/...')` | `google.script.run` |
 | Caching | File system (`data/cache/`) | `CacheService` (100KB/key, 6hr max) |
 | Scheduled tasks | `node-cron` | `ScriptApp.newTrigger()` |
-| Radar processing | GRIB2 via Python/pygrib | Pre-rendered NOAA RIDGE images |
-| Satellite | Download to local disk | Direct CDN URLs |
+| Radar | GRIB2 via Python/pygrib | WMS tiles via Leaflet + NCEP GeoServer |
+| Satellite | Download to local disk | WMS tiles via Leaflet + Iowa State Mesonet |
 | Hosting | Express server (port 3000) | Google-managed web app |
 
 ## License

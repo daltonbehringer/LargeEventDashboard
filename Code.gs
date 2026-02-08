@@ -20,6 +20,17 @@ var RADAR_STATION = "KMUX";   // San Francisco Bay Area
 
 var NWS_USER_AGENT = "LargeEventDashboard/2.0 (Google Apps Script)";
 
+// WMS configuration for MRMS radar
+var RADAR_WMS_URL = "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows";
+
+// WMS configuration for GOES-18 satellite (Iowa State Mesonet)
+var SATELLITE_WMS_URL = "https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_west.cgi";
+var SATELLITE_CHANNELS = {
+  "conus_ch02": "Visible (0.64µm)",
+  "conus_ch09": "Water Vapor (6.9µm)",
+  "conus_ch13": "Clean IR (10.3µm)"
+};
+
 // Cache durations in seconds
 var CACHE_WEATHER = 300;    // 5 minutes
 var CACHE_RADAR = 120;      // 2 minutes
@@ -287,7 +298,7 @@ function fetchNOAAWeather_() {
   return result;
 }
 
-// ── Hourly Forecast (NWS API) ───────────────────────────────────────────────
+// ── Hourly Forecast (NWS API — text-based periods) ──────────────────────────
 function getHourlyForecast() {
   var cached = cacheGet('forecast_hourly');
   if (cached) return cached;
@@ -313,6 +324,118 @@ function getHourlyForecast() {
     Logger.log('Error fetching hourly forecast: ' + e.message);
     return { error: 'Unable to fetch forecast', timestamp: new Date().toISOString() };
   }
+}
+
+// ── Gridpoint Forecast Time Series (NWS raw grid data) ─────────────────────
+// Returns hourly arrays for the next 24h: temp, dewpoint, RH, wind, PoP, sky
+function getGridpointForecast() {
+  var cached = cacheGet('gridpoint_forecast');
+  if (cached) return cached;
+
+  var headers = { 'User-Agent': NWS_USER_AGENT };
+
+  try {
+    var grid = getNWSGridPoint_();
+    var url = 'https://api.weather.gov/gridpoints/' + grid.gridId + '/' + grid.gridX + ',' + grid.gridY;
+    var data = fetchJSON(url, headers);
+    var props = data.properties;
+
+    // Build hourly time slots for the next 24 hours (top of each hour)
+    var now = new Date();
+    // Round up to the next full hour
+    var startHour = new Date(now);
+    startHour.setMinutes(0, 0, 0);
+    if (startHour <= now) {
+      startHour = new Date(startHour.getTime() + 3600000);
+    }
+
+    var hours = [];
+    for (var i = 0; i < 24; i++) {
+      hours.push(new Date(startHour.getTime() + i * 3600000).toISOString());
+    }
+
+    // Expand NWS interval-based values into hourly values
+    // NWS format: { validTime: "2026-02-07T19:00:00+00:00/PT1H", value: 15 }
+    // The duration after / means the value is valid for that period
+    function expandToHourly(fieldData) {
+      if (!fieldData || !fieldData.values) return {};
+      var map = {};
+      for (var i = 0; i < fieldData.values.length; i++) {
+        var entry = fieldData.values[i];
+        var parts = entry.validTime.split('/');
+        var start = new Date(parts[0]);
+        var durationMs = parseDuration_(parts[1]);
+        var end = new Date(start.getTime() + durationMs);
+
+        // Fill every hour within this interval
+        var t = new Date(start);
+        while (t < end) {
+          map[t.toISOString()] = entry.value;
+          t = new Date(t.getTime() + 3600000);
+        }
+      }
+      return map;
+    }
+
+    var tempMap   = expandToHourly(props.temperature);
+    var dewMap    = expandToHourly(props.dewpoint);
+    var rhMap     = expandToHourly(props.relativeHumidity);
+    var wsMap     = expandToHourly(props.windSpeed);
+    var wdMap     = expandToHourly(props.windDirection);
+    var wgMap     = expandToHourly(props.windGust);
+    var popMap    = expandToHourly(props.probabilityOfPrecipitation);
+    var skyMap    = expandToHourly(props.skyCover);
+    var qpfMap    = expandToHourly(props.quantitativePrecipitation);
+
+    // Assemble the hourly time series
+    var series = [];
+    for (var h = 0; h < hours.length; h++) {
+      var iso = hours[h];
+      var tempC = tempMap[iso];
+      var dewC  = dewMap[iso];
+      var wsKmh = wsMap[iso];
+      var wgKmh = wgMap[iso];
+
+      series.push({
+        time: iso,
+        temperature:  tempC !== undefined ? round1(celsiusToFahrenheit(tempC)) : null,
+        dewpoint:     dewC !== undefined ? round1(celsiusToFahrenheit(dewC)) : null,
+        relativeHumidity: rhMap[iso] !== undefined ? Math.round(rhMap[iso]) : null,
+        windSpeed:    wsKmh !== undefined ? round1(wsKmh * 0.621371) : null,  // km/h → mph
+        windDirection: wdMap[iso] !== undefined ? Math.round(wdMap[iso]) : null,
+        windCardinal: degToCompass(wdMap[iso]),
+        windGust:     wgKmh !== undefined ? round1(wgKmh * 0.621371) : null,
+        probabilityOfPrecipitation: popMap[iso] !== undefined ? Math.round(popMap[iso]) : null,
+        skyCover:     skyMap[iso] !== undefined ? Math.round(skyMap[iso]) : null,
+        qpf:          qpfMap[iso] !== undefined ? round2(qpfMap[iso] / 25.4) : null  // mm → inches
+      });
+    }
+
+    var result = {
+      timestamp: new Date().toISOString(),
+      source: 'NWS Gridpoint Forecast (MTR ' + grid.gridX + ',' + grid.gridY + ')',
+      hours: series
+    };
+
+    cachePut('gridpoint_forecast', result, CACHE_FORECAST);
+    return result;
+  } catch (e) {
+    Logger.log('Error fetching gridpoint forecast: ' + e.message);
+    return { error: 'Unable to fetch gridpoint forecast: ' + e.message, timestamp: new Date().toISOString(), hours: [] };
+  }
+}
+
+// Parse ISO 8601 duration string (e.g. PT1H, PT6H, P1DT12H) to milliseconds
+function parseDuration_(dur) {
+  if (!dur) return 3600000; // default 1 hour
+  var ms = 0;
+  var dayMatch = dur.match(/(\d+)D/);
+  var hourMatch = dur.match(/(\d+)H/);
+  var minMatch = dur.match(/(\d+)M/);
+  if (dayMatch) ms += parseInt(dayMatch[1]) * 86400000;
+  if (hourMatch) ms += parseInt(hourMatch[1]) * 3600000;
+  if (minMatch) ms += parseInt(minMatch[1]) * 60000;
+  return ms || 3600000;
 }
 
 // ── Weather Alerts (NWS API) ────────────────────────────────────────────────
@@ -342,83 +465,81 @@ function getWeatherAlerts() {
   }
 }
 
-// ── Radar Image URL (NOAA RIDGE / Iowa State Mesonet) ───────────────────────
-// No GRIB2 processing in GAS — return pre-rendered radar imagery URLs
-function getRadarImageUrl() {
-  var cached = cacheGet('radar_url');
+// ── Radar WMS Time Dimension (parsed from GetCapabilities) ──────────────────
+function getRadarTimes() {
+  var cached = cacheGet('radar_times');
   if (cached) return cached;
 
-  // NOAA RIDGE Radar — KMUX (Bay Area)
-  // Use Iowa State Mesonet for reliable timestamped radar composites
-  var ts = new Date().getTime();
+  try {
+    var capsUrl = RADAR_WMS_URL
+      + '?service=wms&version=1.3.0&request=GetCapabilities';
 
-  var result = {
-    timestamp: new Date().toISOString(),
-    station: RADAR_STATION,
-    urls: {
-      // NOAA RIDGE II radar (single site reflectivity)
-      ridge: 'https://radar.weather.gov/ridge/standard/KMUX_0.gif',
-      // Iowa State Mesonet N0Q composite for the region  
-      mesonet: 'https://mesonet.agron.iastate.edu/GIS/ridge.phtml?sector=CA&prod=N0Q&ts=' + ts,
-      // RainViewer — free global radar tiles (good fallback)
-      rainviewer: 'https://tilecache.rainviewer.com/v2/radar/nowcast/256/6/' 
-        + Math.floor(EVENT_CONFIG.latitude) + '/' + Math.floor(EVENT_CONFIG.longitude) + '/1/1_1.png',
-      // NOAA RIDGE standard for KMUX
-      standard: 'https://radar.weather.gov/ridge/standard/KMUX_loop.gif'
-    },
-    // Primary URL to display
-    url: 'https://radar.weather.gov/ridge/standard/KMUX_0.gif'
-  };
+    var response = UrlFetchApp.fetch(capsUrl, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error('WMS GetCapabilities HTTP ' + response.getResponseCode());
+    }
 
-  cachePut('radar_url', result, CACHE_RADAR);
-  return result;
+    var xml = response.getContentText();
+
+    // Parse time dimension value from the XML
+    // <Dimension name="time" ...>time1,time2,time3,...</Dimension>
+    var timeMatch = xml.match(/<Dimension[^>]*name="time"[^>]*>([^<]+)<\/Dimension>/i);
+    if (!timeMatch || !timeMatch[1]) {
+      throw new Error('No time dimension found in WMS capabilities');
+    }
+
+    var times = timeMatch[1].split(',').map(function(t) { return t.trim(); });
+
+    var result = {
+      timestamp: new Date().toISOString(),
+      source: 'MRMS CONUS Base Reflectivity (QCD)',
+      wmsUrl: RADAR_WMS_URL,
+      layer: 'conus_bref_qcd',
+      style: 'radar_reflectivity',
+      times: times,
+      timeCount: times.length
+    };
+
+    cachePut('radar_times', result, CACHE_RADAR);
+    return result;
+  } catch (e) {
+    Logger.log('Error fetching radar WMS times: ' + e.message);
+    return {
+      error: 'Unable to fetch radar times',
+      timestamp: new Date().toISOString(),
+      times: []
+    };
+  }
 }
 
-// ── Satellite Image URL (GOES-18 CDN) ──────────────────────────────────────
-function getSatelliteImageUrl(product) {
-  product = product || 'GEOCOLOR';
+// ── Satellite WMS Config (GOES-18 via Iowa State Mesonet) ───────────────────
+// Iowa State Mesonet WMS serves only the latest frame per channel (no time
+// dimension), so we return the WMS URL + channel metadata — no time parsing.
+function getSatelliteConfig(channel) {
+  channel = channel || 'conus_ch02';
 
-  var cacheKey = 'satellite_' + product;
-  var cached = cacheGet(cacheKey);
-  if (cached) return cached;
-
-  // GOES-18 (GOES-West) ABI imagery from NOAA CDN
-  // MESO sector M1 covers Western US including Bay Area
-  var productMap = {
-    'GEOCOLOR':    'GEOCOLOR',
-    'visible':     '02',        // Band 02 — Red visible
-    'infrared':    '13',        // Band 13 — Clean longwave IR
-    'watervapor':  '09'         // Band 09 — Mid-level water vapor
-  };
-
-  var band = productMap[product] || 'GEOCOLOR';
-  var baseUrl = 'https://cdn.star.nesdis.noaa.gov/GOES18/ABI/SECTOR/psw/';
-  var ts = new Date().getTime();
-
-  var result = {
+  return {
     timestamp: new Date().toISOString(),
-    product: product,
-    satellite: 'GOES-18',
-    url: baseUrl + band + '/latest.jpg?t=' + ts,
-    urls: {
-      geocolor:    baseUrl + 'GEOCOLOR/latest.jpg?t=' + ts,
-      visible:     baseUrl + '02/latest.jpg?t=' + ts,
-      infrared:    baseUrl + '13/latest.jpg?t=' + ts,
-      watervapor:  baseUrl + '09/latest.jpg?t=' + ts
-    }
+    source: 'GOES-18 (Iowa State Mesonet)',
+    wmsUrl: SATELLITE_WMS_URL,
+    channel: channel,
+    channelName: SATELLITE_CHANNELS[channel] || channel
   };
+}
 
-  cachePut(cacheKey, result, CACHE_SATELLITE);
-  return result;
+// Return available satellite channels
+function getSatelliteChannels() {
+  return SATELLITE_CHANNELS;
 }
 
 // ── Optional: Time-driven trigger for warming cache ─────────────────────────
 function warmCache() {
   getCurrentWeather();
   getHourlyForecast();
+  getGridpointForecast();
   getWeatherAlerts();
-  getRadarImageUrl();
-  getSatelliteImageUrl('GEOCOLOR');
+  getRadarTimes();
+  // Satellite WMS has no time dimension — no cache warming needed
   Logger.log('Cache warmed at ' + new Date().toISOString());
 }
 
