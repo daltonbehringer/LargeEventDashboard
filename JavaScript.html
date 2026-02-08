@@ -120,7 +120,7 @@ class WeatherDashboard {
     this.satelliteTimes = [];
     this.activeSatTime = null;
     this.satellitePlayer = null;
-    this.satelliteChannel = 'G18-ABI-CONUS-BAND02'; // default to visible
+    this.satelliteChannel = 'G18-ABI-CONUS-BAND13'; // default to IR
     this.init();
   }
 
@@ -148,7 +148,7 @@ class WeatherDashboard {
 
   updateEventInfo() {
     if (!this.config) return;
-    document.getElementById('event-name').textContent = this.config.name;
+    // Event name is hardcoded in HTML as "Super Bowl LX Weather"
     document.getElementById('event-location').textContent = this.config.location;
 
     var startDate = new Date(this.config.startDate);
@@ -219,6 +219,17 @@ class WeatherDashboard {
       fill: false
     }).addTo(this.radarMap);
 
+    // US County boundaries overlay (TIGER WMS)
+    this.radarCounties = L.tileLayer.wms('https://tigerweb.geo.census.gov/arcgis/services/TIGERweb/tigerWMS_Current/MapServer/WMSServer', {
+      layers: '84',  // Counties layer
+      format: 'image/png',
+      transparent: true,
+      styles: '',
+      attribution: 'US Census Bureau',
+      pane: 'overlayPane',
+      opacity: 1
+    }).addTo(this.radarMap);
+
     // Init loop player
     var self = this;
     this.radarPlayer = new LoopPlayer({
@@ -287,6 +298,11 @@ class WeatherDashboard {
     this.radarWmsLayers[timeStr].addTo(this.radarMap);
     this.activeRadarTime = timeStr;
 
+    // Ensure county boundaries stay on top
+    if (this.radarCounties) {
+      this.radarCounties.bringToFront();
+    }
+
     // Update timestamp label
     document.getElementById('radar-timestamp').textContent =
       this.formatTimePST(timeStr) + ' (MRMS)';
@@ -354,6 +370,17 @@ class WeatherDashboard {
         pane: 'overlayPane'
       }
     ).addTo(this.satelliteMap);
+
+    // US County boundaries overlay (TIGER WMS)
+    this.satCounties = L.tileLayer.wms('https://tigerweb.geo.census.gov/arcgis/services/TIGERweb/tigerWMS_Current/MapServer/WMSServer', {
+      layers: '84',  // Counties layer
+      format: 'image/png',
+      transparent: true,
+      styles: '',
+      attribution: 'US Census Bureau',
+      pane: 'overlayPane',
+      opacity: 1
+    }).addTo(this.satelliteMap);
 
     // Init satellite loop player
     var self = this;
@@ -437,6 +464,11 @@ class WeatherDashboard {
     // Ensure labels stay on top
     if (this.satLabelsLayer) {
       this.satLabelsLayer.bringToFront();
+    }
+
+    // Ensure county boundaries stay on top
+    if (this.satCounties) {
+      this.satCounties.bringToFront();
     }
 
     // Update timestamp label

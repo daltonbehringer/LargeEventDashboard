@@ -13,8 +13,12 @@
 
     <!-- Header -->
     <header class="dashboard-header">
+      <div class="header-logos">
+        <img src="data:image/png;base64,<?!= include('noaa_base64') ?>" alt="NOAA" class="header-logo">
+        <img src="data:image/png;base64,<?!= include('nws_base64') ?>" alt="NWS" class="header-logo">
+      </div>
       <div class="event-info">
-        <h1 id="event-name">Event Weather Dashboard</h1>
+        <h1 id="event-name">Super Bowl LX Weather</h1>
         <div class="event-details">
           <span id="event-location"></span>
           <span id="event-date"></span>
@@ -102,7 +106,7 @@
 
       <!-- Radar Display -->
       <section class="panel radar-display">
-        <h2>Radar — MRMS</h2>
+        <h2>Radar</h2>
         <div class="radar-content">
           <div id="radar-map"></div>
           <div class="loop-controls" id="radar-controls">
@@ -125,12 +129,12 @@
 
       <!-- Satellite Display -->
       <section class="panel satellite-display">
-        <h2>Satellite — GOES-18</h2>
+        <h2>Satellite</h2>
         <div class="satellite-content">
           <div class="satellite-channel-selector">
-            <button class="channel-btn active" data-channel="G18-ABI-CONUS-BAND02" title="Visible (0.64µm)">VIS</button>
+            <button class="channel-btn" data-channel="G18-ABI-CONUS-BAND02" title="Visible (0.64µm)">VIS</button>
             <button class="channel-btn" data-channel="G18-ABI-CONUS-BAND09" title="Water Vapor (6.9µm)">WV</button>
-            <button class="channel-btn" data-channel="G18-ABI-CONUS-BAND13" title="Clean IR (10.3µm)">IR</button>
+            <button class="channel-btn active" data-channel="G18-ABI-CONUS-BAND13" title="Clean IR (10.3µm)">IR</button>
           </div>
           <div id="satellite-map"></div>
           <div class="loop-controls" id="satellite-controls">
